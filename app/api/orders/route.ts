@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
          RETURNING id, order_number`,
         [auth.userId, data.courseId, orderNumber, course.price, provider, auth.email, data.customerName, data.customerPhone ?? null]
       );
-      return result.rows[0] as { id: string; order_number: string };
+      return result.rows[0] as { id: string; order_number: string } as { id: string; order_number: string };
     });
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
