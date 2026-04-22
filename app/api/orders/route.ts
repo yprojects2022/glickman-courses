@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth';
 import { query, queryOne, transaction } from '@/lib/db';
 import { createPayment, getActiveProvider } from '@/lib/payment';
-import { v4 as uuidv4 } from 'uuid';
 
 const schema = z.object({
   courseId: z.string().uuid(),
@@ -19,7 +18,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = schema.parse(body);
 
-    // Get course
     const course = await queryOne<{ id: string; title: string; price: number; is_published: boolean }>(
       'SELECT id, title, price, is_published FROM courses WHERE id = $1',
       [data.courseId]
@@ -28,7 +26,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'קורס לא נמצא' }, { status: 404 });
     }
 
-    // Check not already enrolled
     const enrolled = await queryOne(
       'SELECT id FROM enrollments WHERE user_id = $1 AND course_id = $2 AND is_active = true',
       [auth.userId, data.courseId]
@@ -41,13 +38,13 @@ export async function POST(req: NextRequest) {
     const provider = getActiveProvider();
 
     const order = await transaction(async (client) => {
-      const [o] = await client.query(
+      const result = await client.query(
         `INSERT INTO orders (user_id, course_id, order_number, status, amount, currency, payment_provider, billing_email, billing_name, billing_phone)
          VALUES ($1, $2, $3, 'pending', $4, 'ILS', $5, $6, $7, $8)
          RETURNING id, order_number`,
         [auth.userId, data.courseId, orderNumber, course.price, provider, auth.email, data.customerName, data.customerPhone ?? null]
       );
-      return o.rows[0];
+      return result.rows[0] as { id: string; order_number: string };
     });
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
@@ -61,11 +58,6 @@ export async function POST(req: NextRequest) {
       successUrl: `${appUrl}/payment/success`,
       cancelUrl: `${appUrl}/courses/${data.courseId}`,
     });
-
-    // Store payment provider intent id if we have it
-    if (payment.clientSecret) {
-      await query('UPDATE orders SET payment_provider_id = $1 WHERE id = $2', [payment.clientSecret, order.id]);
-    }
 
     return NextResponse.json({ order, payment });
   } catch (e: any) {
